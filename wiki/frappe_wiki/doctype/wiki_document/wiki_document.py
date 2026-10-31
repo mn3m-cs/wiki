@@ -377,7 +377,7 @@ class WikiDocument(NestedSet):
 		# get_cached_value can't cache a lookup by filters, so resolve the name and read by it.
 		space_name = root_group and frappe.db.get_value("Wiki Space", {"root_group": root_group}, "name")
 		wiki_space = space_name and frappe.get_cached_value(
-			"Wiki Space", space_name, ["name", "space_name", "route"], as_dict=True
+			"Wiki Space", space_name, ["name", "space_name", "route", "language"], as_dict=True
 		)
 		if memo is not None:
 			memo["wiki_space"] = wiki_space or None
@@ -570,6 +570,9 @@ class WikiDocument(NestedSet):
 		"""
 		self.check_space_access("read")
 		self.check_published()
+		wiki_space = self.get_wiki_space()
+		if wiki_space and wiki_space.get("language"):
+			frappe.local.lang = wiki_space["language"]
 		rendered_content, toc_headings = self.get_rendered_content_and_toc()
 		_, adjacent_docs = self.get_tree_and_navigation()
 		return {
@@ -592,6 +595,8 @@ class WikiDocument(NestedSet):
 		self.check_space_access("read")
 		self.check_published()
 		wiki_space = self.get_wiki_space()
+		if wiki_space and wiki_space.get("language"):
+			frappe.local.lang = wiki_space["language"]
 
 		rendered_content, toc_headings = self.get_rendered_content_and_toc()
 

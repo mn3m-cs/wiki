@@ -36,6 +36,23 @@
 		</SettingsRow>
 
 		<SettingsRow
+			:title="__('Language')"
+			:description="
+				__(
+					'Pages in this space render in this language and direction, regardless of the reader\'s browser',
+				)
+			"
+		>
+			<Select
+				:modelValue="language"
+				class="w-64"
+				:options="languageOptions"
+				:disabled="savingLanguage"
+				@update:modelValue="updateLanguage"
+			/>
+		</SettingsRow>
+
+		<SettingsRow
 			:title="__('Space Logo')"
 			:description="
 				__('Shown in the reader header and on generated social preview images')
@@ -129,9 +146,11 @@
 <script setup>
 import {
 	Button,
+	createListResource,
 	createResource,
 	Dialog,
 	FormControl,
+	Select,
 	SettingsRow,
 	Switch,
 	toast,
@@ -158,6 +177,8 @@ const spaceName = ref('');
 const savingName = ref(false);
 const isPublished = ref(true);
 const updatingPublishSetting = ref(false);
+const language = ref('');
+const savingLanguage = ref(false);
 const showDeleteDialog = ref(false);
 const confirmName = ref('');
 
@@ -166,6 +187,25 @@ const spaceStore = useSpaceStore();
 const { close: closeSettings } = useSpaceSettings();
 const savedName = computed(() => props.space.doc?.space_name || '');
 const confirmLabel = computed(() => __('Type {0} to confirm', []).split('{0}'));
+
+const languages = createListResource({
+	doctype: 'Language',
+	fields: ['name', 'language_name'],
+	filters: { enabled: 1 },
+	orderBy: 'language_name asc',
+	pageLength: 200,
+	auto: true,
+});
+const languageOptions = computed(() => {
+	const options = (languages.data || []).map((row) => ({
+		label: `${row.language_name} (${row.name})`,
+		value: row.name,
+	}));
+	if (language.value && !options.some((o) => o.value === language.value)) {
+		options.push({ label: language.value, value: language.value });
+	}
+	return [{ label: __('Follow browser'), value: '' }, ...options];
+});
 
 const spaceStats = createResource({
 	url: 'wiki.api.wiki_space.get_space_stats',
@@ -189,6 +229,7 @@ watch(
 		if (doc) {
 			spaceName.value = doc.space_name || '';
 			isPublished.value = Boolean(doc.is_published);
+			language.value = doc.language || '';
 		}
 	},
 	{ immediate: true },
@@ -207,6 +248,24 @@ async function updatePublishSetting(value) {
 		isPublished.value = !value;
 	} finally {
 		updatingPublishSetting.value = false;
+	}
+}
+
+async function updateLanguage(value) {
+	const saved = props.space.doc?.language || '';
+	const next = value || '';
+	if (next === saved) return;
+	language.value = next;
+	savingLanguage.value = true;
+	try {
+		await props.space.setValue.submit({ language: next || null });
+	} catch (error) {
+		language.value = saved;
+		toast.error(
+			error.messages?.[0] || __('Failed to update the space language'),
+		);
+	} finally {
+		savingLanguage.value = false;
 	}
 }
 

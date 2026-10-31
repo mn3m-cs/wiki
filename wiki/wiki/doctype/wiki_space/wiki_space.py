@@ -42,6 +42,7 @@ class WikiSpace(Document):
 		enable_feedback_collection: DF.Check
 		favicon: DF.AttachImage | None
 		is_published: DF.Check
+		language: DF.Link | None
 		last_edited: DF.Datetime | None
 		light_mode_logo: DF.AttachImage | None
 		navbar_items: DF.Table[TopBarItem]
