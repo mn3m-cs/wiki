@@ -69,6 +69,7 @@ def create_test_wiki_space(test_case, space_name, route, root_group, **kwargs):
 		space_name=space_name,
 		route=route,
 		root_group=root_group,
+		language=kwargs.get("language"),
 		roles=kwargs.get("roles", []),
 		show_in_switcher=kwargs.get("show_in_switcher", True),
 		is_published=kwargs.get("is_published", True),
@@ -773,21 +774,80 @@ class TestRenderedPageDirection(WikiDocumentTestBase):
 		self.page = create_test_wiki_document(self, "Page", parent=space.root_group, slug=f"page-{route}")
 		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
-	def _html_tag(self, accept_language):
+	def _html_tag(self, accept_language, path=None, headers=None, follow_redirects=False):
+		req_headers = {"Accept": "text/html", "Accept-Language": accept_language, **(headers or {})}
 		response = _make_request(
 			self.TEST_CLIENT,
 			"get",
-			f"/{self.page.route}",
-			headers={"Accept": "text/html", "Accept-Language": accept_language},
+			path or f"/{self.page.route}",
+			headers=req_headers,
+			follow_redirects=follow_redirects,
 		)
 		self.assertEqual(response.status_code, 200)
 		return re.search(r"<html[^>]*>", response.get_data(as_text=True)).group(0)
+
+	def _space_with_pages(self, prefix, language=None, guest_readable=True, root_leaf=False):
+		route = f"{prefix}-{frappe.generate_hash(length=6)}"
+		space = create_test_wiki_space(
+			self,
+			f"{prefix} Space",
+			route,
+			None,
+			language=language,
+			roles=[("Guest", "Read")] if guest_readable else [],
+		)
+		first_page = create_test_wiki_document(
+			self, "First Page", parent=space.root_group, slug=f"first-{route}"
+		)
+		second_page = create_test_wiki_document(
+			self, "Second Page", parent=space.root_group, slug=f"second-{route}"
+		)
+		if root_leaf:
+			root_doc = create_test_wiki_document(
+				self, "Root Page", parent=space.root_group, slug=f"root-{route}"
+			)
+			root_doc.db_set("route", space.route)
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		return space, first_page, second_page
 
 	def test_rtl_language_renders_right_to_left(self):
 		self.assertIn('lang="ar" dir="rtl"', self._html_tag("ar"))
 
 	def test_ltr_language_renders_left_to_right(self):
 		self.assertIn('lang="en" dir="ltr"', self._html_tag("en"))
+
+	def test_arabic_space_renders_rtl_for_english_guest_browser(self):
+		space, first_page, second_page = self._space_with_pages("ar-guest", language="ar")
+		root_space, _, _ = self._space_with_pages("ar-root", language="ar", root_leaf=True)
+
+		self.assertIn('lang="ar" dir="rtl"', self._html_tag("en", path=f"/{first_page.route}"))
+		self.assertIn('lang="ar" dir="rtl"', self._html_tag("en", path=f"/{second_page.route}"))
+		self.assertIn(
+			'lang="ar" dir="rtl"',
+			self._html_tag("en", path=f"/{space.route}", follow_redirects=True),
+		)
+		self.assertIn('lang="ar" dir="rtl"', self._html_tag("en", path=f"/{root_space.route}"))
+
+	def test_arabic_space_renders_rtl_for_logged_in_english_user(self):
+		from frappe.core.doctype.user.user import generate_keys
+
+		user = make_wiki_user("_Test Direction Reader")
+		frappe.db.set_value("User", user, "language", "en")
+		api_secret = generate_keys(user)["api_secret"]
+		api_key = frappe.db.get_value("User", user, "api_key")
+		_, first_page, _ = self._space_with_pages("ar-user", language="ar", guest_readable=False)
+
+		html_tag = self._html_tag(
+			"en",
+			path=f"/{first_page.route}",
+			headers={"Authorization": f"token {api_key}:{api_secret}"},
+		)
+		self.assertIn('lang="ar" dir="rtl"', html_tag)
+
+	def test_english_space_renders_ltr_for_arabic_browser(self):
+		_, first_page, _ = self._space_with_pages("en-guest", language="en")
+
+		self.assertIn('lang="en" dir="ltr"', self._html_tag("ar", path=f"/{first_page.route}"))
 
 
 class TestDisableIndexing(WikiDocumentTestBase):
